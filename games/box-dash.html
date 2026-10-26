@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Box Dash — 10 Stages</title>
+<style>
+  html, body {
+    margin: 0; height: 100%;
+    background: #1a1d29; color: #e6e8ef;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  }
+  h1 { margin: 0; font-size: 20px; font-weight: 600; }
+  #hud { font-size: 14px; color: #9aa0b4; display:flex; gap:18px; }
+  #hud b { color: #ffd166; }
+  canvas {
+    background: #0f1118; border: 1px solid #2a2e3f; border-radius: 8px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.4); max-width: 100%;
+  }
+  .controls { font-size: 13px; color: #8a90a6; }
+  kbd { background:#2a2e3f;border:1px solid #3a3f55;border-bottom-width:2px;border-radius:4px;padding:1px 6px;font-size:12px;color:#e6e8ef; }
+</style>
+</head>
+<body>
+  <h1>📦 Box Dash</h1>
+  <div id="hud">
+    <span>Stage <b id="stage">1</b>/10</span>
+    <span>Coins <b id="coins">0</b></span>
+    <span>Deaths <b id="deaths">0</b></span>
+  </div>
+  <canvas id="game" width="840" height="470"></canvas>
+  <div class="controls">
+    <kbd>A</kbd> <kbd>D</kbd> move &nbsp;•&nbsp; <kbd>W</kbd> or <kbd>←</kbd> jump &nbsp;•&nbsp; <kbd>R</kbd> restart stage &nbsp;•&nbsp; reach the 🏁 flag
+  </div>
+  <a href="../index.html" style="font-size:12px;color:#8a90a6;text-decoration:none">&#8592; Back to Game Hub</a>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const VW = canvas.width, VH = canvas.height; // viewport
+
+// ---------------------------------------------------------------------
+// Stage generator: builds ground segments (with gaps), floating platforms,
+// coins and a goal. Difficulty scales with stage index (0-based).
+// Returns { worldW, segments, platforms, coins, goal, start }
+// ---------------------------------------------------------------------
+function buildStage(i){
+  const d = i / 9;                       // 0 .. 1 difficulty
+  const groundY = 420;
+  const worldW = 2200 + i * 260;         // longer later stages
+  const segments = [];                   // solid ground chunks {x,w}
+  const platforms = [];
+  const coins = [];
+
+  // Walk across the world laying down ground with gaps between chunks.
+  const minGap = 70  + d * 60;           // 70 -> 130
+  const maxGap = 110 + d * 110;          // 110 -> 220
+  const minChunk = 220 - d * 90;         // 220 -> 130
+  const maxChunk = 360 - d * 140;        // 360 -> 220
+
+  let x = 0;
+  // guaranteed safe start pad
+  segments.push({ x: 0, w: 320 });
+  x = 320;
+  while (x < worldW - 360){
+    const gap = minGap + Math.random() * (maxGap - minGap);
+    x += gap;
+    const chunk = Math.min(minChunk + Math.random() * (maxChunk - minChunk), worldW - x - 40);
+    if (chunk < 60) break;
+    segments.push({ x: x, w: chunk });
+
+    // sometimes place a floating platform over/near a gap as a helper or coin perch
+    if (Math.random() < 0.65){
+      const pw = 90 + Math.random()*50;
+      const px = x - gap/2 - pw/2;
+      const py = groundY - (70 + Math.random() * (90 + d*60));
+      platforms.push({ x: px, y: py, w: pw, h: 16 });
+      if (Math.random() < 0.8) coins.push({ x: px + pw/2, y: py - 22, r: 7, got:false });
+    }
+    // a coin floating in the gap to tempt risky jumps
+    if (Math.random() < 0.5) coins.push({ x: x - gap/2, y: groundY - 40, r:7, got:false });
+
+    x += chunk;
+  }
+  // final landing pad + goal
+  const padX = worldW - 300;
+  segments.push({ x: padX, w: 300 });
+  const goal = { x: worldW - 90, y: groundY - 70, w: 20, h: 70 };
+
+  // a few coins on the ground for fun (optional to collect)
+  for (const s of segments){
+    if (Math.random() < 0.4) coins.push({ x: s.x + s.w*0.5, y: groundY - 24, r:7, got:false });
+  }
+
+  return {
+    worldW, groundY, segments, platforms, coins, goal,
+    start: { x: 60, y: groundY - 40 },
+    // physics knobs per stage
+    jump: 12 + d * 2.5,      // higher jump needed later
+    moveMax: 5 + d * 1.6,    // a bit faster later
+  };
+}
+
+// ---------------------------------------------------------------------
+let stages = [];
+function makeAllStages(){ stages = []; for(let i=0;i<10;i++) stages.push(buildStage(i)); }
+makeAllStages();
+
+let stageIndex = 0;
+let S = stages[0];
+let coinsTotal = 0, deaths = 0;
+let player, camX = 0, won = false, winFlash = 0;
+
+function loadStage(i){
+  stageIndex = i;
+  S = stages[i];
+  player = {
+    x: S.start.x, y: S.start.y, w: 30, h: 30,
+    vx: 0, vy: 0, onGround: false,
+    angle: 0, spin: 0,   // rotation for the flip
+  };
+  camX = 0; won = false;
+  document.getElementById('stage').textContent = (i+1);
+}
+loadStage(0);
+
+// --- Input ------------------------------------------------------------
+const keys = {};
+window.addEventListener('keydown', e=>{
+  const k = e.key.toLowerCase(); keys[k]=true;
+  if(['arrowleft','arrowright','arrowup','arrowdown',' '].includes(k)) e.preventDefault();
+  if(k==='r') respawn();
+});
+window.addEventListener('keyup', e=>{ keys[e.key.toLowerCase()]=false; });
+
+function respawn(){
+  deaths++;
+  document.getElementById('deaths').textContent = deaths;
+  const sx = S.start.x, sy = S.start.y;
+  player.x = sx; player.y = sy; player.vx = 0; player.vy = 0;
+  player.angle = 0; player.spin = 0;
+}
+
+// --- Physics ----------------------------------------------------------
+const GRAVITY = 0.6, MOVE = 0.9, FRICTION = 0.80;
+
+function onSolidGround(px, py, pw, ph){
+  // returns the ground segment the player's feet rest on, or null
+  for(const s of S.segments){
+    if(px + pw > s.x && px < s.x + s.w){
+      if(py + ph >= S.groundY && py + ph <= S.groundY + 20) return s;
+    }
+  }
+  return null;
+}
+function overlapRect(a,b){ return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y; }
+
+function update(){
+  if(won){ winFlash++; return; }
+
+  if(keys['a']) player.vx -= MOVE;
+  if(keys['d']) player.vx += MOVE;
+  player.vx *= FRICTION;
+  const MAX = S.moveMax;
+  if(player.vx>MAX)player.vx=MAX; if(player.vx<-MAX)player.vx=-MAX;
+  if(Math.abs(player.vx)<0.05)player.vx=0;
+
+  // Jump: W or Left Arrow -> launches a flip
+  if((keys['w']||keys['arrowleft']) && player.onGround){
+    player.vy = -S.jump;
+    player.onGround = false;
+    player.spin = (player.vx >= 0 ? 1 : -1) * 0.22; // flip direction follows motion
+  }
+
+  player.vy += GRAVITY;
+
+  // X move + platform side collisions
+  player.x += player.vx;
+  for(const p of S.platforms){
+    if(overlapRect(player,p)){
+      if(player.vx>0)player.x=p.x-player.w; else if(player.vx<0)player.x=p.x+p.w;
+      player.vx=0;
+    }
+  }
+  if(player.x < 0){ player.x = 0; player.vx = 0; }
+  if(player.x + player.w > S.worldW){ player.x = S.worldW - player.w; player.vx = 0; }
+
+  // Y move
+  player.y += player.vy;
+  player.onGround = false;
+
+  // land on floating platforms (top only)
+  for(const p of S.platforms){
+    if(overlapRect(player,p)){
+      if(player.vy>0 && player.y + player.h - player.vy <= p.y + 2){
+        player.y = p.y - player.h; player.vy = 0; player.onGround = true;
+      } else if(player.vy<0){
+        player.y = p.y + p.h; player.vy = 0;
+      }
+    }
+  }
+  // land on ground segments
+  const g = onSolidGround(player.x, player.y, player.w, player.h);
+  if(g && player.vy >= 0 && player.y + player.h >= S.groundY){
+    player.y = S.groundY - player.h; player.vy = 0; player.onGround = true;
+  }
+
+  // flip rotation
+  if(player.onGround){
+    // snap upright when landed
+    player.angle = 0; player.spin = 0;
+  } else {
+    player.angle += player.spin;
+  }
+
+  // Death by gap: below the ground line and not over solid ground
+  if(player.y > S.groundY + 4 && !onSolidGround(player.x, player.y, player.w, player.h)){
+    if(player.y > S.groundY + 120) respawn();
+  }
+  if(player.y > VH + 400) respawn();
+
+  // Coins (optional bonus)
+  for(const c of S.coins){
+    if(!c.got){
+      const cx=player.x+player.w/2, cy=player.y+player.h/2;
+      if(Math.hypot(cx-c.x,cy-c.y) < c.r + 18){
+        c.got = true; coinsTotal++;
+        document.getElementById('coins').textContent = coinsTotal;
+      }
+    }
+  }
+
+  // Goal flag -> next stage
+  if(overlapRect(player, S.goal)){
+    if(stageIndex < 9){ loadStage(stageIndex + 1); }
+    else { won = true; }
+  }
+
+  // Camera follows player (clamped to world)
+  const target = player.x + player.w/2 - VW/2;
+  camX += (target - camX) * 0.12;
+  if(camX < 0) camX = 0;
+  if(camX > S.worldW - VW) camX = S.worldW - VW;
+}
+
+// --- Rendering --------------------------------------------------------
+function drawBox(px, py, s, angle){
+  ctx.save();
+  ctx.translate(px + s/2, py + s/2);
+  ctx.rotate(angle);
+  const h = s/2;
+  // cardboard body
+  ctx.fillStyle = '#c99a5b';
+  ctx.fillRect(-h, -h, s, s);
+  ctx.fillStyle = '#b5853f';
+  ctx.fillRect(-h, -h, s, s*0.32);         // top flap shade
+  // tape seam
+  ctx.fillStyle = '#e8d6ad';
+  ctx.fillRect(-h, -3, s, 6);
+  // border
+  ctx.strokeStyle = '#8a6329'; ctx.lineWidth = 2;
+  ctx.strokeRect(-h, -h, s, s);
+  // amazon smile arrow
+  ctx.strokeStyle = '#ff9900'; ctx.lineWidth = 2.4; ctx.lineCap='round';
+  ctx.beginPath();
+  ctx.arc(0, h*0.1, s*0.32, 0.15*Math.PI, 0.85*Math.PI);
+  ctx.stroke();
+  // arrowhead
+  ctx.beginPath();
+  const ax = s*0.26, ay = h*0.1 + s*0.17;
+  ctx.moveTo(ax-5, ay-1); ctx.lineTo(ax+2, ay+2); ctx.lineTo(ax-1, ay-6);
+  ctx.strokeStyle='#ff9900'; ctx.stroke();
+  ctx.restore();
+}
+
+function draw(){
+  // sky gradient by stage
+  const t = stageIndex/9;
+  const g = ctx.createLinearGradient(0,0,0,VH);
+  g.addColorStop(0, `rgb(${18+t*30},${22+t*10},${45+t*5})`);
+  g.addColorStop(1, '#0f1118');
+  ctx.fillStyle = g; ctx.fillRect(0,0,VW,VH);
+
+  ctx.save();
+  ctx.translate(-camX, 0);
+
+  // ground segments
+  for(const s of S.segments){
+    ctx.fillStyle = '#3a4a66';
+    ctx.fillRect(s.x, S.groundY, s.w, VH - S.groundY);
+    ctx.fillStyle = '#4a7a5a';
+    ctx.fillRect(s.x, S.groundY, s.w, 8);   // grass top
+  }
+  // floating platforms
+  for(const p of S.platforms){
+    ctx.fillStyle = '#4a7a5a'; ctx.fillRect(p.x, p.y, p.w, p.h);
+    ctx.fillStyle = 'rgba(255,255,255,0.08)'; ctx.fillRect(p.x, p.y, p.w, 3);
+  }
+  // coins
+  for(const c of S.coins){ if(c.got) continue;
+    ctx.beginPath(); ctx.arc(c.x,c.y,c.r,0,Math.PI*2);
+    ctx.fillStyle='#ffd166'; ctx.fill();
+    ctx.strokeStyle='#e0a800'; ctx.lineWidth=2; ctx.stroke();
+  }
+  // goal flag
+  const gl = S.goal;
+  ctx.fillStyle='#ddd'; ctx.fillRect(gl.x, gl.y, 3, gl.h);
+  ctx.fillStyle='#06d6a0'; ctx.beginPath();
+  ctx.moveTo(gl.x+3, gl.y); ctx.lineTo(gl.x+26, gl.y+10); ctx.lineTo(gl.x+3, gl.y+20); ctx.closePath(); ctx.fill();
+
+  // player box (flips in air)
+  drawBox(player.x, player.y, player.w, player.angle);
+
+  ctx.restore();
+
+  // win overlay
+  if(won){
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0,0,VW,VH);
+    ctx.fillStyle = '#ffd166'; ctx.textAlign='center';
+    ctx.font = 'bold 34px system-ui'; ctx.fillText('📦 Delivered! All 10 stages cleared!', VW/2, VH/2 - 10);
+    ctx.font = '18px system-ui'; ctx.fillStyle='#e6e8ef';
+    ctx.fillText(`Coins: ${coinsTotal}   •   Deaths: ${deaths}   •   Press R to play again`, VW/2, VH/2 + 28);
+    ctx.textAlign='left';
+  }
+}
+
+window.addEventListener('keydown', e=>{
+  if(won && e.key.toLowerCase()==='r'){
+    coinsTotal=0; deaths=0; makeAllStages();
+    document.getElementById('coins').textContent=0;
+    document.getElementById('deaths').textContent=0;
+    loadStage(0);
+  }
+});
+
+function loop(){ update(); draw(); requestAnimationFrame(loop); }
+loop();
+</script>
+</body>
+</html>

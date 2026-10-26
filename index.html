@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Game Hub</title>
+<style>
+  :root {
+    --bg:#0e0f14; --bg2:#141620; --text:#eee; --card:#1a1d2a; --card-hover:#222637;
+    --border:#2c3042; --accent:#5eb0ff; --accent2:#b06ff0; --muted:#8a90a6;
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; }
+  body {
+    background:radial-gradient(1200px 600px at 50% -10%, #1b2030 0%, var(--bg) 55%);
+    color:var(--text); font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
+    min-height:100vh; padding:40px 20px;
+  }
+  .wrap { max-width:960px; margin:0 auto; }
+  header { text-align:center; margin-bottom:38px; }
+  .logo {
+    font-size:40px; font-weight:900; letter-spacing:1px;
+    background:linear-gradient(90deg,var(--accent),var(--accent2));
+    -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;
+  }
+  .tagline { color:var(--muted); font-size:15px; margin-top:6px; }
+  .grid {
+    display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:18px;
+  }
+  .card {
+    background:var(--card); border:1px solid var(--border); border-radius:16px;
+    overflow:hidden; text-decoration:none; color:inherit; display:flex; flex-direction:column;
+    transition:transform .15s ease, border-color .15s ease, background .15s ease;
+    position:relative;
+  }
+  .card.live:hover { transform:translateY(-4px); border-color:var(--accent); background:var(--card-hover); }
+  .thumb {
+    height:120px; display:flex; align-items:center; justify-content:center; font-size:54px;
+    background:linear-gradient(135deg, rgba(94,176,255,0.12), rgba(176,111,240,0.12));
+  }
+  .card-body { padding:14px 16px 16px; }
+  .card-title { font-size:17px; font-weight:800; margin:0 0 4px; }
+  .card-desc { font-size:12.5px; color:var(--muted); line-height:1.5; margin:0; }
+  .badge {
+    position:absolute; top:10px; right:10px; font-size:10px; font-weight:800;
+    padding:3px 8px; border-radius:20px; text-transform:uppercase; letter-spacing:.5px;
+  }
+  .badge.play { background:var(--accent); color:#06223d; }
+  .badge.soon { background:var(--border); color:var(--muted); }
+  .card.soon { opacity:.6; cursor:default; }
+  footer { text-align:center; color:var(--muted); font-size:12px; margin-top:40px; }
+  footer .ver { color:var(--accent); font-weight:700; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">🎮 GAME HUB</div>
+    <div class="tagline">A growing collection — pick a game and go. Scores are live across everyone who plays.</div>
+  </header>
+  <div class="grid" id="grid"></div>
+  <footer>Hub <span class="ver" id="ver">v1.0</span> · Built for the crew · More games on the way</footer>
+</div>
+
+<script>
+  // ---- Add a new game by dropping one entry here ----
+  // { title, desc, icon (emoji), url ('' = coming soon) }
+  const GAMES = [
+    {
+      title: "Tetris",
+      desc: "Classic block-stacker with a live leaderboard, sound, and the One Spin Andy mode.",
+      icon: "🧱",
+      url: "games/tetris.html"
+    },
+    {
+      title: "Box Dash",
+      desc: "Side-scrolling platformer — 10 stages, deadly gaps, and an Amazon box that flips when it jumps.",
+      icon: "📦",
+      url: "games/box-dash.html"
+    },
+    { title: "Coming Soon", desc: "Got an idea? It could go here.", icon: "💡", url: "" }
+  ];
+
+  const HUB_VERSION = "1.1";
+  document.getElementById('ver').textContent = "v" + HUB_VERSION;
+
+  const grid = document.getElementById('grid');
+  grid.innerHTML = GAMES.map(g => {
+    const live = !!g.url;
+    const tag = live
+      ? '<span class="badge play">Play</span>'
+      : '<span class="badge soon">Soon</span>';
+    const inner =
+      '<div class="thumb">' + g.icon + '</div>' + tag +
+      '<div class="card-body">' +
+        '<h3 class="card-title">' + g.title + '</h3>' +
+        '<p class="card-desc">' + g.desc + '</p>' +
+      '</div>';
+    return live
+      ? '<a class="card live" href="' + g.url + '">' + inner + '</a>'
+      : '<div class="card soon">' + inner + '</div>';
+  }).join('');
+</script>
+</body>
+</html>

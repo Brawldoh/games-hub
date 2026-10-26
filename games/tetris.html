@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tetris</title>
+<style>
+  :root { --bg:#111; --text:#eee; --card:#1a1a1a; --border:#444; --accent:#5eb0ff; --muted:#999; --danger:#f0634f; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,sans-serif;
+         min-height:100vh; display:flex; align-items:center; justify-content:center; padding:16px; }
+  #tetris-root { outline:none; display:flex; gap:16px; flex-wrap:wrap; justify-content:center; align-items:flex-start; }
+  #board { background:var(--card); border:2px solid var(--border); border-radius:8px; display:block; }
+  .panel { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:10px; }
+  .label { font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); }
+  #next { background:var(--bg); border-radius:6px; display:block; margin:0 auto; }
+  #overlay { position:absolute; inset:0; display:none; align-items:center; justify-content:center; flex-direction:column;
+             background:rgba(0,0,0,0.6); border-radius:8px; text-align:center; }
+  #tetris-flash { position:absolute; top:40%; left:50%; transform:translate(-50%,-50%); font-size:34px; font-weight:900;
+                  letter-spacing:2px; color:var(--accent); text-shadow:0 0 18px var(--accent); opacity:0; pointer-events:none; white-space:nowrap; }
+  button { font-size:13px; padding:8px 14px; border-radius:8px; border:none; background:var(--accent); color:#fff; font-weight:700; cursor:pointer; }
+  @keyframes tetrisPop { 0%{opacity:0;transform:translate(-50%,-50%) scale(0.4)} 25%{opacity:1;transform:translate(-50%,-50%) scale(1.2)} 70%{opacity:1;transform:translate(-50%,-50%) scale(1)} 100%{opacity:0;transform:translate(-50%,-50%) scale(1)} }
+  .tetris-show { animation: tetrisPop 1.3s ease-out forwards; }
+  #settingsBtn { background:var(--card); border:1px solid var(--border); color:var(--text); }
+  #modalBg { position:fixed; inset:0; background:rgba(0,0,0,0.55); display:none; align-items:center; justify-content:center; z-index:50; }
+  #modal { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:0; width:340px; max-width:92vw; box-shadow:0 12px 40px rgba(0,0,0,0.5); overflow:hidden; }
+  #modalHead { display:flex; justify-content:space-between; align-items:center; padding:14px 16px; border-bottom:1px solid var(--border); }
+  #modalHead .title { font-size:16px; font-weight:800; }
+  #modalClose { background:transparent; border:none; color:var(--muted); font-size:20px; line-height:1; padding:2px 6px; cursor:pointer; }
+  .tabs { display:flex; gap:6px; padding:12px 16px 0; }
+  .tab { font-size:12px; padding:6px 12px; border-radius:8px 8px 0 0; border:1px solid var(--border); border-bottom:none; background:var(--bg); color:var(--muted); cursor:pointer; font-weight:700; }
+  .tab.active { background:var(--card); color:var(--text); }
+  .tabBody { padding:16px; border-top:1px solid var(--border); margin-top:-1px; }
+  .optrow { display:flex; align-items:flex-start; gap:10px; padding:8px 0; }
+  .switch { position:relative; width:42px; height:24px; flex:0 0 auto; margin-top:2px; }
+  .switch input { opacity:0; width:0; height:0; }
+  .slider { position:absolute; inset:0; background:var(--border); border-radius:24px; transition:.2s; cursor:pointer; }
+  .slider:before { content:""; position:absolute; height:18px; width:18px; left:3px; top:3px; background:#fff; border-radius:50%; transition:.2s; }
+  .switch input:checked + .slider { background:var(--accent); }
+  .switch input:checked + .slider:before { transform:translateX(18px); }
+</style>
+</head>
+<body>
+<div id="tetris-root" tabindex="0">
+  <div style="position:relative">
+    <canvas id="board" width="240" height="480"></canvas>
+    <div id="overlay"></div>
+    <div id="tetris-flash">TETRIS!</div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:12px;min-width:150px">
+    <a href="../index.html" style="font-size:12px;color:var(--muted);text-decoration:none">&#8592; Back to Game Hub</a>
+    <div class="panel">
+      <div class="label">Score</div>
+      <div id="score" style="font-size:26px;font-weight:800">0</div>
+      <div style="display:flex;gap:14px;margin-top:6px">
+        <div><div class="label">Lines</div><div id="lines" style="font-size:16px;font-weight:700">0</div></div>
+        <div><div class="label">Level</div><div id="level" style="font-size:16px;font-weight:700">1</div></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="label" style="margin-bottom:6px">Next</div>
+      <canvas id="next" width="120" height="80"></canvas>
+    </div>
+    <div class="panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div class="label">Leaderboard</div>
+        <span id="lbStatus" style="font-size:10px;color:var(--muted)"></span>
+      </div>
+      <ol id="leaderboard" style="margin:0;padding:0;list-style:none;font-size:12px"></ol>
+    </div>
+    <div class="panel" id="controlsPanel" style="font-size:11px;line-height:1.7;color:var(--muted)"></div>
+    <div style="display:flex;gap:8px">
+      <button id="startBtn" style="flex:1">New Game</button>
+      <button id="settingsBtn" title="Options">&#9881;</button>
+    </div>
+  </div>
+</div>
+
+<div id="modalBg">
+  <div id="modal">
+    <div id="modalHead">
+      <span class="title">Options</span>
+      <button id="modalClose">&times;</button>
+    </div>
+    <div class="tabs">
+      <div class="tab active" data-tab="controls">Controls</div>
+    </div>
+    <div class="tabBody" id="tab-controls">
+      <div class="optrow">
+        <label class="switch"><input type="checkbox" id="oneSpinAndy"><span class="slider"></span></label>
+        <div>
+          <div style="font-weight:700;color:var(--text)">One Spin Andy
+            <span style="font-size:10px;color:var(--muted);font-weight:400;font-style:italic">&nbsp;&mdash; thank Carlos</span>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4">
+            Piece spins <b>right only</b>, rotated with <b>Spacebar</b>. Pause moves to <b>P</b>.
+          </div>
+        </div>
+      </div>
+      <div class="optrow" style="border-top:1px solid var(--border);margin-top:4px;padding-top:12px">
+        <label class="switch"><input type="checkbox" id="soundToggle"><span class="slider"></span></label>
+        <div>
+          <div style="font-weight:700;color:var(--text)">Sound effects</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4">
+            Blips for moves, a thud on hard drop, and a fanfare on <b>TETRIS!</b>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  // ---- Sound engine (Web Audio, synthesized — no external files) ----
+  let soundOn = localStorage.getItem('soundOn') !== '0'; // default ON
+  let audioCtx = null;
+  function ensureAudio(){
+    if(!audioCtx){
+      try { audioCtx = new (window.AudioContext||window.webkitAudioContext)(); } catch(e){ audioCtx=null; }
+    }
+    if(audioCtx && audioCtx.state==='suspended') audioCtx.resume();
+  }
+  // play one tone: freq Hz, dur s, type, starting gain, delay s
+  function tone(freq, dur, type='square', gain=0.15, delay=0){
+    if(!soundOn || !audioCtx) return;
+    const t0 = audioCtx.currentTime + delay;
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = type; osc.frequency.setValueAtTime(freq, t0);
+    g.gain.setValueAtTime(gain, t0);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(g); g.connect(audioCtx.destination);
+    osc.start(t0); osc.stop(t0 + dur + 0.02);
+  }
+  function slideTone(f1, f2, dur, type='sawtooth', gain=0.14){
+    if(!soundOn || !audioCtx) return;
+    const t0 = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(f1, t0);
+    osc.frequency.exponentialRampToValueAtTime(f2, t0 + dur);
+    g.gain.setValueAtTime(gain, t0);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(g); g.connect(audioCtx.destination);
+    osc.start(t0); osc.stop(t0 + dur + 0.02);
+  }
+  const SFX = {
+    move:    ()=> tone(220, 0.04, 'square', 0.08),
+    rotate:  ()=> tone(440, 0.06, 'square', 0.10),
+    soft:    ()=> tone(180, 0.04, 'triangle', 0.07),
+    hard:    ()=> { tone(120, 0.10, 'square', 0.18); tone(70, 0.14, 'sine', 0.16); },
+    lock:    ()=> tone(150, 0.05, 'triangle', 0.08),
+    line:    ()=> slideTone(400, 900, 0.22, 'sawtooth', 0.14),
+    tetris:  ()=> { [523,659,784,1047].forEach((f,i)=> tone(f, 0.18, 'square', 0.16, i*0.09)); },
+    levelup: ()=> { [440,554,659].forEach((f,i)=> tone(f, 0.12, 'triangle', 0.14, i*0.07)); },
+    over:    ()=> { [392,330,262,196].forEach((f,i)=> tone(f, 0.22, 'sawtooth', 0.15, i*0.14)); }
+  };
+
+
+  const SUPABASE_URL = 'https://zzdbfryenpkgaezrtqel.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp6ZGJmcnllbnBrZ2FlenJ0cWVsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMwMTc4NzMsImV4cCI6MjEwODU5Mzg3M30.1DC_qqbh7ysk9Cndl7ofqHBInM4VYSKDUWL1Vdv2KLk';
+  const REST = SUPABASE_URL.replace(/\/+$/,'') + '/rest/v1/scores';
+  const HEADERS = { 'apikey':SUPABASE_KEY, 'Authorization':'Bearer '+SUPABASE_KEY, 'Content-Type':'application/json' };
+  const TOP_N = 10;
+  let topScores = [];
+
+  const leaderboardEl = document.getElementById('leaderboard');
+  const lbStatus = document.getElementById('lbStatus');
+
+  async function fetchLeaderboard(){
+    try {
+      lbStatus.textContent = '…';
+      const res = await fetch(REST + '?select=name,score&order=score.desc&limit=' + TOP_N, { headers: HEADERS });
+      if(!res.ok) throw new Error('HTTP ' + res.status);
+      topScores = await res.json();
+      renderLeaderboard();
+      lbStatus.textContent = 'live';
+    } catch(err){
+      lbStatus.textContent = 'offline';
+      leaderboardEl.innerHTML = '<li style="color:var(--muted)">Can\u2019t reach leaderboard</li>';
+    }
+  }
+  function renderLeaderboard(){
+    if(!topScores.length){ leaderboardEl.innerHTML = '<li style="color:var(--muted)">No scores yet \u2014 be first!</li>'; return; }
+    leaderboardEl.innerHTML = topScores.map((r,i)=>{
+      const medal = i===0?'\uD83E\uDD47':i===1?'\uD83E\uDD48':i===2?'\uD83E\uDD49':(i+1)+'.';
+      return '<li style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border)">'+
+        '<span><span style="display:inline-block;width:20px;color:var(--muted)">'+medal+'</span>'+
+        '<b style="color:var(--text)">'+escapeHtml(r.name)+'</b></span>'+
+        '<span style="color:var(--accent);font-weight:700">'+r.score+'</span></li>';
+    }).join('');
+  }
+  function escapeHtml(s){ return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function qualifies(sc){ return sc>0 && (topScores.length<TOP_N || sc>topScores[topScores.length-1].score); }
+  async function submitScore(name, sc){
+    try {
+      lbStatus.textContent = 'saving…';
+      const res = await fetch(REST, { method:'POST', headers:{...HEADERS,'Prefer':'return=minimal'}, body:JSON.stringify({ name:name, score:sc }) });
+      if(!res.ok) throw new Error('HTTP ' + res.status);
+      await fetchLeaderboard();
+      return true;
+    } catch(err){
+      lbStatus.textContent = 'save failed';
+      return false;
+    }
+  }
+
+  const root = document.getElementById('tetris-root');
+  const canvas = document.getElementById('board');
+  const ctx = canvas.getContext('2d');
+  const nextCanvas = document.getElementById('next');
+  const nctx = nextCanvas.getContext('2d');
+  const scoreEl = document.getElementById('score');
+  const linesEl = document.getElementById('lines');
+  const levelEl = document.getElementById('level');
+  const overlay = document.getElementById('overlay');
+  const flash = document.getElementById('tetris-flash');
+  const startBtn = document.getElementById('startBtn');
+  const settingsBtn = document.getElementById('settingsBtn');
+  const modalBg = document.getElementById('modalBg');
+  const modalClose = document.getElementById('modalClose');
+  const oneSpinToggle = document.getElementById('oneSpinAndy');
+  const soundToggle = document.getElementById('soundToggle');
+  const controlsPanel = document.getElementById('controlsPanel');
+
+  // One Spin Andy mode (persisted locally)
+  let oneSpinAndy = localStorage.getItem('oneSpinAndy') === '1';
+  oneSpinToggle.checked = oneSpinAndy;
+  soundToggle.checked = soundOn;
+  soundToggle.addEventListener('change',()=>{
+    soundOn = soundToggle.checked;
+    localStorage.setItem('soundOn', soundOn ? '1' : '0');
+    if(soundOn){ ensureAudio(); SFX.rotate(); } // quick confirmation blip
+  });
+
+  function renderControls(){
+    const rotateLine = oneSpinAndy
+      ? '<b style="color:var(--accent)">Space &nbsp;Spin right</b><br>P &nbsp;Pause'
+      : 'Z / X &nbsp;Rotate<br>Space &nbsp;Pause';
+    controlsPanel.innerHTML =
+      '<div style="color:var(--text);font-weight:700;margin-bottom:4px">Controls'+
+      (oneSpinAndy?' <span style="font-size:10px;color:var(--accent)">\u2022 One Spin Andy</span>':'')+'</div>'+
+      '&#8592; &#8594; &nbsp;Move<br>'+
+      '&#8595; &nbsp;Soft drop<br>'+
+      '<b style="color:var(--accent)">&#8593; &nbsp;Hard drop</b><br>'+
+      rotateLine;
+  }
+  function openSettings(){ oneSpinToggle.checked = oneSpinAndy; soundToggle.checked = soundOn; modalBg.style.display='flex'; }
+  function closeSettings(){ modalBg.style.display='none'; root.focus(); }
+  settingsBtn.addEventListener('click',(e)=>{ e.preventDefault(); openSettings(); });
+  modalClose.addEventListener('click',(e)=>{ e.preventDefault(); closeSettings(); });
+  modalBg.addEventListener('click',(e)=>{ if(e.target===modalBg) closeSettings(); });
+  oneSpinToggle.addEventListener('change',()=>{
+    oneSpinAndy = oneSpinToggle.checked;
+    localStorage.setItem('oneSpinAndy', oneSpinAndy ? '1' : '0');
+    renderControls();
+  });
+  renderControls();
+
+  const COLS = 10, ROWS = 20, CELL = 24;
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const COLORS = { I:'#36c5f0', O:'#f5c542', T:'#b06ff0', S:'#4fd666', Z:'#f0634f', J:'#4f78f0', L:'#f09a4f' };
+  const SHAPES = {
+    I:[[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],
+    O:[[1,1],[1,1]],
+    T:[[0,1,0],[1,1,1],[0,0,0]],
+    S:[[0,1,1],[1,1,0],[0,0,0]],
+    Z:[[1,1,0],[0,1,1],[0,0,0]],
+    J:[[1,0,0],[1,1,1],[0,0,0]],
+    L:[[0,0,1],[1,1,1],[0,0,0]]
+  };
+  const KEYS = Object.keys(SHAPES);
+
+  let board, cur, nextPiece, score, lines, level, dropMs, acc, lastTime, running, paused, gameOver, clearing;
+
+  function newBoard(){ return Array.from({length:ROWS},()=>Array(COLS).fill(0)); }
+  function randPiece(){
+    const t = KEYS[Math.floor(Math.random()*KEYS.length)];
+    const m = SHAPES[t].map(r=>r.slice());
+    return { type:t, m, x:Math.floor((COLS-m[0].length)/2), y:0 };
+  }
+  function rotate(m){
+    const N=m.length, M=m[0].length;
+    const r=Array.from({length:M},()=>Array(N).fill(0));
+    for(let y=0;y<N;y++)for(let x=0;x<M;x++) r[x][N-1-y]=m[y][x];
+    return r;
+  }
+  function collide(piece, offX=0, offY=0, mat=null){
+    const m = mat||piece.m;
+    for(let y=0;y<m.length;y++)for(let x=0;x<m[y].length;x++){
+      if(!m[y][x]) continue;
+      const nx=piece.x+x+offX, ny=piece.y+y+offY;
+      if(nx<0||nx>=COLS||ny>=ROWS) return true;
+      if(ny>=0 && board[ny][nx]) return true;
+    }
+    return false;
+  }
+  function merge(piece){
+    piece.m.forEach((row,y)=>row.forEach((v,x)=>{
+      if(v){ const ny=piece.y+y, nx=piece.x+x; if(ny>=0) board[ny][nx]=piece.type; }
+    }));
+  }
+  function spawn(){
+    cur = nextPiece || randPiece();
+    cur.x = Math.floor((COLS-cur.m[0].length)/2); cur.y=0;
+    nextPiece = randPiece();
+    drawNext();
+    if(collide(cur)){ endGame(); }
+  }
+  function clearLines(){
+    let full=[];
+    for(let y=0;y<ROWS;y++){ if(board[y].every(c=>c)) full.push(y); }
+    if(full.length===0){ return; }
+    clearing = true;
+    const doCollapse = ()=>{
+      full.forEach(y=>{ board.splice(y,1); board.unshift(Array(COLS).fill(0)); });
+      const pts=[0,100,300,500,800][full.length]*level;
+      score+=pts; lines+=full.length;
+      const newLevel=Math.floor(lines/10)+1;
+      const leveled = newLevel!==level;
+      if(leveled){ level=newLevel; dropMs=Math.max(80,500-(level-1)*40); }
+      updateHud();
+      if(full.length===4){ showTetris(); SFX.tetris(); }
+      else SFX.line();
+      if(leveled) setTimeout(()=>SFX.levelup(), 120);
+      clearing=false;
+    };
+    if(reduceMotion){ doCollapse(); return; }
+    let blink=0;
+    const iv=setInterval(()=>{
+      blink++;
+      drawBoard(full, blink%2===0);
+      if(blink>=4){ clearInterval(iv); doCollapse(); }
+    },70);
+  }
+  function showTetris(){
+    flash.classList.remove('tetris-show'); void flash.offsetWidth;
+    flash.classList.add('tetris-show');
+  }
+  function hardDrop(){
+    let d=0; while(!collide(cur,0,1)){ cur.y++; d++; }
+    score += d*2; updateHud();
+    SFX.hard();
+    lockPiece();
+  }
+  function lockPiece(){
+    merge(cur);
+    clearLines();
+    if(!gameOver) spawn();
+  }
+  function updateHud(){ scoreEl.textContent=score; linesEl.textContent=lines; levelEl.textContent=level; }
+  function drawCell(c,x,y,color,size=CELL){
+    c.fillStyle=color;
+    c.fillRect(x*size+1,y*size+1,size-2,size-2);
+    c.fillStyle='rgba(255,255,255,0.18)';
+    c.fillRect(x*size+1,y*size+1,size-2,4);
+  }
+  function drawBoard(highlight=[], white=false){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){
+      if(board[y][x]) drawCell(ctx,x,y,COLORS[board[y][x]]);
+    }
+    if(white) highlight.forEach(y=>{ for(let x=0;x<COLS;x++){ ctx.fillStyle='#ffffff'; ctx.fillRect(x*CELL+1,y*CELL+1,CELL-2,CELL-2);} });
+    if(cur && !clearing){
+      let gy=0; while(!collide(cur,0,gy+1)) gy++;
+      cur.m.forEach((row,ry)=>row.forEach((v,rx)=>{
+        if(v){ ctx.fillStyle='rgba(255,255,255,0.12)'; ctx.fillRect((cur.x+rx)*CELL+1,(cur.y+gy+ry)*CELL+1,CELL-2,CELL-2); }
+      }));
+      cur.m.forEach((row,ry)=>row.forEach((v,rx)=>{ if(v) drawCell(ctx,cur.x+rx,cur.y+ry,COLORS[cur.type]); }));
+    }
+  }
+  function drawNext(){
+    nctx.clearRect(0,0,nextCanvas.width,nextCanvas.height);
+    if(!nextPiece) return;
+    const m=nextPiece.m, s=18;
+    const w=m[0].length, h=m.length;
+    const ox=(nextCanvas.width-w*s)/2/s, oy=(nextCanvas.height-h*s)/2/s;
+    m.forEach((row,y)=>row.forEach((v,x)=>{ if(v) drawCell(nctx,x+ox,y+oy,COLORS[nextPiece.type],s); }));
+  }
+  function loop(t){
+    if(!running){ return; }
+    if(paused||gameOver){ lastTime=t; requestAnimationFrame(loop); return; }
+    if(!lastTime) lastTime=t;
+    acc += t-lastTime; lastTime=t;
+    if(!clearing && acc>dropMs){
+      acc=0;
+      if(!collide(cur,0,1)){ cur.y++; } else { lockPiece(); }
+    }
+    drawBoard();
+    requestAnimationFrame(loop);
+  }
+  function reset(){
+    board=newBoard(); score=0; lines=0; level=1; dropMs=500; acc=0; lastTime=0;
+    paused=false; gameOver=false; clearing=false; nextPiece=null;
+    overlay.style.display='none'; updateHud(); spawn();
+  }
+  function startGame(){ ensureAudio(); reset(); running=true; lastTime=0; requestAnimationFrame(loop); root.focus(); }
+  function endGame(){
+    gameOver=true; running=false;
+    SFX.over();
+    const finalScore = score;
+    let html = '<div style="font-size:26px;font-weight:900;color:var(--danger)">GAME OVER</div>'+
+      '<div style="font-size:14px;color:#fff;margin-top:6px">Score: '+finalScore+'</div>';
+    if(qualifies(finalScore)){
+      html += '<div style="font-size:12px;color:var(--accent);margin-top:10px;font-weight:700">\uD83C\uDFC6 Top 10! Enter your name:</div>'+
+        '<div style="margin-top:8px;display:flex;gap:6px;justify-content:center">'+
+        '<input id="initials" maxlength="12" placeholder="AAA" style="width:90px;text-transform:uppercase;text-align:center;padding:6px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-weight:700">'+
+        '<button id="submitScore">Save</button></div>'+
+        '<div id="submitMsg" style="font-size:11px;color:var(--muted);margin-top:8px">Press New Game when done</div>';
+    } else {
+      html += '<div style="font-size:12px;color:#ccc;margin-top:10px">Press New Game</div>';
+    }
+    overlay.innerHTML = html;
+    overlay.style.display='flex';
+    const inp = document.getElementById('initials');
+    if(inp){
+      inp.focus();
+      const btn = document.getElementById('submitScore');
+      const msg = document.getElementById('submitMsg');
+      const doSubmit = async ()=>{
+        const name = (inp.value||'').trim().toUpperCase().slice(0,12) || 'AAA';
+        btn.disabled = true; msg.textContent = 'Saving\u2026';
+        const ok = await submitScore(name, finalScore);
+        msg.textContent = ok ? 'Saved! Press New Game' : 'Save failed \u2014 check connection';
+        if(!ok) btn.disabled = false;
+      };
+      btn.addEventListener('click',(e)=>{ e.preventDefault(); doSubmit(); });
+      inp.addEventListener('keydown',(e)=>{ if(e.key==='Enter'){ e.preventDefault(); doSubmit(); } });
+    }
+  }
+  function togglePause(){
+    if(gameOver||!running) return;
+    paused=!paused;
+    if(paused){ overlay.innerHTML='<div style="font-size:24px;font-weight:800;color:#fff">PAUSED</div>'; overlay.style.display='flex'; }
+    else { overlay.style.display='none'; lastTime=0; }
+  }
+  root.addEventListener('keydown',(e)=>{
+    if(modalBg.style.display==='flex'){ if(e.key==='Escape') closeSettings(); return; }
+    if(!running||gameOver){ return; }
+    const k=e.key;
+    const watched = oneSpinAndy
+      ? ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',' ','p','P']
+      : ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',' ','z','Z','x','X'];
+    if(watched.includes(k)) e.preventDefault();
+    const pauseKey = oneSpinAndy ? (k==='p'||k==='P') : (k===' ');
+    if(paused){ if(pauseKey) togglePause(); return; }
+    if(clearing) return;
+    if(k==='ArrowLeft'){ if(!collide(cur,-1,0)){ cur.x--; SFX.move(); } }
+    else if(k==='ArrowRight'){ if(!collide(cur,1,0)){ cur.x++; SFX.move(); } }
+    else if(k==='ArrowDown'){ if(!collide(cur,0,1)){ cur.y++; score+=1; updateHud(); SFX.soft(); } }
+    else if(k==='ArrowUp'){ hardDrop(); }
+    else if(oneSpinAndy && k===' '){
+      const r=rotate(cur.m);
+      for(const off of [0,-1,1,-2,2]){ if(!collide(cur,off,0,r)){ cur.m=r; cur.x+=off; SFX.rotate(); break; } }
+    }
+    else if(!oneSpinAndy && (k==='z'||k==='Z'||k==='x'||k==='X')){
+      const r=rotate(cur.m);
+      for(const off of [0,-1,1,-2,2]){ if(!collide(cur,off,0,r)){ cur.m=r; cur.x+=off; SFX.rotate(); break; } }
+    }
+    else if(pauseKey){ togglePause(); }
+    drawBoard();
+  });
+  startBtn.addEventListener('click',(e)=>{ e.preventDefault(); startGame(); });
+  canvas.addEventListener('click',()=>root.focus());
+
+  board=newBoard(); score=0;lines=0;level=1;
+  drawBoard(); updateHud();
+  overlay.innerHTML='<div style="font-size:20px;font-weight:800;color:#fff">TETRIS</div><div style="font-size:12px;color:#ccc;margin-top:8px">Press New Game</div>';
+  overlay.style.display='flex';
+  fetchLeaderboard();
+})();
+</script>
+</body>
+</html>
